@@ -11,7 +11,7 @@
 -export_type([options/0, error_reason/0, child_id/0, child_spec/0,
               child_specs/0, start_fun/0, stop_fun/0,
               child_status/0, child_status_table/0,
-              start_link_ret/0]).
+              start_ret/0]).
 
 -type options() ::
         #{stop_timeout => pos_integer(),
@@ -59,7 +59,7 @@
 -type child_status_table() ::
         #{child_id() := child_status()}.
 
--type start_link_ret() :: c_gen_server:start_ret().
+-type start_ret() :: c_gen_server:start_ret().
 
 -callback children() -> child_specs().
 
