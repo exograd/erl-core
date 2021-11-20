@@ -2,7 +2,6 @@
  [{description, "Various useful Erlang modules."},
   {vsn, "git"},
   {registered, []},
-  {mod, {c_app, []}},
   {applications,
    [kernel,
     stdlib]},
