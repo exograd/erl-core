@@ -22,6 +22,15 @@
       | {unknown_child_id, child_id()}
       | {start_child, child_id(), term()}.
 
+-type result() ::
+        ok | {error, error_reason()}.
+
+-type result(Type) ::
+        {ok, Type} | {error, error_reason()}.
+
+-type result(Type1, Type2) ::
+        {ok, Type1, Type2} | {error, error_reason()}.
+
 -type state() ::
         #{module := module(),
           options := options(),
@@ -77,7 +86,7 @@ stop(Ref) ->
   gen_server:stop(Ref).
 
 -spec start_child(c_gen_server:ref(), child_id(), child_spec()) ->
-        {ok, pid()} | {error, error_reason()}.
+        result(pid()).
 start_child(Ref, Id, Spec) ->
   call(Ref, {start_child, Id, Spec}).
 
@@ -194,8 +203,7 @@ handle_info(Msg, State) ->
   ?LOG_WARNING("unhandled info ~p", [Msg]),
   {noreply, State}.
 
--spec start_children([{child_id(), child_spec()}], state()) ->
-        {ok, state()} | {stop, error_reason()}.
+-spec start_children([{child_id(), child_spec()}], state()) -> result(state()).
 start_children([], State) ->
   {ok, State};
 start_children([{Id, Spec} | Children], State) ->
@@ -209,7 +217,7 @@ start_children([{Id, Spec} | Children], State) ->
   end.
 
 -spec do_start_child(child_id(), child_spec(), state()) ->
-        {ok, child(), state()} | {error, error_reason()}.
+        result(child(), state()).
 do_start_child(Id, _Spec, #{children := Children}) when
     is_map_key(Id, Children) ->
   {error, {duplicate_child_id, Id}};
@@ -257,8 +265,7 @@ wait_for_children(State = #{children_ids := Ids, children := Children}) ->
       end
   end.
 
--spec do_stop_child(child_id(), term(), state()) ->
-        {ok, state()} | {error, error_reason()}.
+-spec do_stop_child(child_id(), term(), state()) -> result(state()).
 do_stop_child(Id, Reason, State = #{children := Children}) ->
   case maps:find(Id, Children) of
     {ok, #{stop_timer := _}} ->
