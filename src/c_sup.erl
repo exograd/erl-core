@@ -8,8 +8,8 @@
          start_child/3, stop_child/2, children/1]).
 -export([init/1, terminate/2, handle_call/3, handle_cast/2, handle_info/2]).
 
--export_type([options/0, error_reason/0, child_id/0, child_spec/0,
-              child_specs/0, start_fun/0, stop_fun/0,
+-export_type([options/0, error_reason/0, result/0, result/1, result/2,
+              child_id/0, child_spec/0, child_specs/0, start_fun/0, stop_fun/0,
               child_status/0, child_status_table/0,
               start_ret/0]).
 
@@ -104,7 +104,7 @@ call(Ref, Message) ->
 
 -spec init(list()) -> c_gen_server:init_ret(state()).
 init([Module, Options]) ->
-  logger:update_process_metadata(#{domain => [sup]}),
+  logger:update_process_metadata(#{domain => [c_sup]}),
   ?LOG_DEBUG("starting (module: ~p)", [Module]),
   process_flag(trap_exit, true),
   State = #{module => Module,
