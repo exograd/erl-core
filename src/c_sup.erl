@@ -51,8 +51,7 @@
 -type start_fun() ::
         fun((...) -> {ok, pid()} | {error, term()}).
 
--type stop_fun() ::
-        fun((pid(), term()) -> ok).
+-type stop_fun() :: fun((pid()) -> ok) | fun((pid(), term()) -> ok).
 
 -type child() ::
         #{spec := child_spec(),
@@ -290,7 +289,11 @@ do_stop_child(Id, Reason, State = #{children := Children}) ->
   end.
 
 -spec call_stop(child(), term()) -> ok.
-call_stop(#{pid := Pid, spec := #{stop := Stop}}, Reason) ->
+call_stop(#{pid := Pid, spec := #{stop := Stop}}, _Reason) when
+    is_function(Stop, 1) ->
+  Stop(Pid);
+call_stop(#{pid := Pid, spec := #{stop := Stop}}, Reason) when
+    is_function(Stop, 2) ->
   Stop(Pid, Reason);
 call_stop(#{pid := Pid}, Reason) ->
   exit(Pid, Reason).
