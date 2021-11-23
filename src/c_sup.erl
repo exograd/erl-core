@@ -46,7 +46,7 @@
           transient => boolean()}.
 
 -type child_specs() ::
-        #{child_id() := child_spec()}.
+        [{child_id(), child_spec()}].
 
 -type start_fun() ::
         fun((...) -> {ok, pid()} | {error, term()}).
@@ -110,8 +110,7 @@ init([Module, Options]) ->
             options => Options,
             children_ids => #{},
             children => #{}},
-  Specs = maps:to_list(Module:children()),
-  start_children(Specs, State).
+  start_children(Module:children(), State).
 
 -spec terminate(c_gen_server:terminate_reason(), state()) -> ok.
 terminate(Reason, State) ->

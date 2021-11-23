@@ -15,9 +15,9 @@ stop() ->
 
 -spec children() -> c_sup:child_specs().
 children() ->
-  #{a =>
-      #{start => fun c_test_child:start_link/2,
-        start_args => [a, #{}]},
-    b =>
-      #{start => fun c_test_child:start_link/2,
-        start_args => [b, #{init_exception => {error, e1}}]}}.
+  [{a,
+    #{start => fun c_test_child:start_link/2,
+      start_args => [a, #{}]}},
+   {b,
+    #{start => fun c_test_child:start_link/2,
+      start_args => [b, #{init_exception => {error, e1}}]}}].

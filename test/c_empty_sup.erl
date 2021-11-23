@@ -15,4 +15,4 @@ stop() ->
 
 -spec children() -> c_sup:child_specs().
 children() ->
-  #{}.
+  [].
