@@ -19,7 +19,8 @@
 -behaviour(gen_server).
 
 -export([start_link/2, start_link/3, stop/1,
-         start_child/3, stop_child/2, children/1]).
+         start_child/3, stop_child/2, stop_and_remove_child/2,
+         children/1]).
 -export([init/1, terminate/2, handle_call/3, handle_cast/2, handle_info/2]).
 
 -export_type([options/0, error_reason/0, result/0, result/1, result/2,
@@ -84,6 +85,9 @@
 -type start_ret() :: c_gen_server:start_ret().
 -type start_child_ret() :: result(pid()).
 
+-type stop_child_options() ::
+        #{remove => boolean()}.
+
 -callback children() -> child_specs().
 
 -spec start_link(module(), options()) -> c_gen_server:start_ret().
@@ -106,7 +110,11 @@ start_child(Ref, Id, Spec) ->
 
 -spec stop_child(c_gen_server:ref(), child_id()) -> ok.
 stop_child(Ref, Id) ->
-  call(Ref, {stop_child, Id}).
+  call(Ref, {stop_child, Id, #{}}).
+
+-spec stop_and_remove_child(c_gen_server:ref(), child_id()) -> ok.
+stop_and_remove_child(Ref, Id) ->
+  call(Ref, {stop_child, Id, #{remove => true}}).
 
 -spec children(c_gen_server:ref()) -> child_status_table().
 children(Ref) ->
@@ -141,8 +149,8 @@ handle_call({start_child, Id, Spec}, _From, State) ->
     {error, Reason} ->
       {reply, {error, Reason}, State}
   end;
-handle_call({stop_child, Id}, _From, State) ->
-  case do_stop_child(Id, normal, State) of
+handle_call({stop_child, Id, Options}, _From, State) ->
+  case do_stop_child(Id, normal, Options, State) of
     {ok, State2} ->
       {reply, ok, State2};
     {error, Reason} ->
@@ -198,7 +206,7 @@ handle_info({restart_child, Id}, State = #{children := Children}) ->
   %% restart timer. We still have to handle the case where the {restart_child,
   %% _} message was already sent; in that case, we will get here, but there
   %% will be no restart_timer in the child because we removed it in
-  %% do_stop_child/3. We just ignore it.
+  %% do_stop_child/4. We just ignore it.
   case maps:find(Id, Children) of
     {ok, Child = #{restart_timer := _}} ->
       case do_restart_child(Id, Child, State) of
@@ -248,10 +256,14 @@ do_start_child(Id, Spec = #{start := Start}, State) ->
 
 -spec stop_children(state()) -> ok.
 stop_children(State = #{children := Children}) ->
-  %% do_stop_child/3 can only fail if the child id does not exist, which
+  %% do_stop_child/4 can only fail if the child id does not exist, which
   %% cannot happen here.
+  %%
+  %% It may seems strange not to call do_stop_child/4 with the "remove"
+  %% option, since we do not want children to be restarted during shutdown,
+  %% but wait_for_children/1 is designed to handle everything in a simple way.
   State2 = maps:fold(fun (Id, _, S) ->
-                         {ok, S2} = do_stop_child(Id, shutdown, S),
+                         {ok, S2} = do_stop_child(Id, shutdown, #{}, S),
                          S2
                      end, State, Children),
   wait_for_children(State2).
@@ -278,29 +290,41 @@ wait_for_children(State = #{children_ids := Ids, children := Children}) ->
       end
   end.
 
--spec do_stop_child(child_id(), term(), state()) -> result(state()).
-do_stop_child(Id, Reason, State = #{children := Children}) ->
+-spec do_stop_child(child_id(), term(), stop_child_options(), state()) ->
+        result(state()).
+do_stop_child(Id, Reason, Options, State = #{children := Children}) ->
   case maps:find(Id, Children) of
-    {ok, #{stop_timer := _}} ->
-      {ok, State};
-    {ok, #{restart_timer := Timer}} ->
-      case Reason of
-        shutdown ->
-          erlang:cancel_timer(Timer),
-          {ok, State#{children => maps:remove(Id, Children)}};
+    {ok, Child0} ->
+      Remove = maps:get(remove, Options, false),
+      Child = maybe_set_child_transient(Child0, Remove),
+      case Child of
+        #{stop_timer := _} ->
+          {ok, State};
+        #{restart_timer := Timer} ->
+          case Reason of
+            shutdown ->
+              erlang:cancel_timer(Timer),
+              {ok, State#{children => maps:remove(Id, Children)}};
+            _ ->
+              {ok, State}
+          end;
         _ ->
-          {ok, State}
+          ?LOG_DEBUG("stopping child ~0tp", [Id]),
+          call_stop(Child, Reason),
+          Timeout = stop_timeout(State),
+          Timer = erlang:send_after(Timeout, self(), {stop_timeout, Id}),
+          Child2 = Child#{stop_timer => Timer},
+          {ok, State#{children => Children#{Id => Child2}}}
       end;
-    {ok, Child} ->
-      ?LOG_DEBUG("stopping child ~0tp", [Id]),
-      call_stop(Child, Reason),
-      Timeout = stop_timeout(State),
-      Timer = erlang:send_after(Timeout, self(), {stop_timeout, Id}),
-      Child2 = Child#{stop_timer => Timer},
-      {ok, State#{children => Children#{Id => Child2}}};
     error ->
       {error, {unknown_child_id, Id}}
   end.
+
+-spec maybe_set_child_transient(child(), boolean()) -> child().
+maybe_set_child_transient(Child = #{spec := Spec}, true) ->
+  Child#{spec => Spec#{transient => true}};
+maybe_set_child_transient(Child, false) ->
+  Child.
 
 -spec call_stop(child(), term()) -> ok.
 call_stop(#{pid := Pid, spec := #{stop := Stop}}, _Reason) when
