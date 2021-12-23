@@ -182,6 +182,7 @@ handle_info({stop_timeout, Id}, State = #{children := Children}) ->
     {ok, Child = #{pid := Pid}} ->
       ?LOG_WARNING("child ~0tp (~p) timed out", [Id, Pid]),
       exit(Pid, kill),
+      receive {'EXIT', Pid, _} -> ok end,
       {noreply, remove_or_restart_child(Id, Child, State)};
     error ->
       {noreply, State}
