@@ -278,6 +278,7 @@ wait_for_children(State = #{children_ids := Ids, children := Children}) ->
       case maps:find(Id, Children) of
         {ok, #{pid := Pid}} ->
           exit(Pid, kill),
+          receive {'EXIT', Pid, _} -> ok end,
           wait_for_children(remove_child(Id, Pid, State));
         error ->
           wait_for_children(State)
