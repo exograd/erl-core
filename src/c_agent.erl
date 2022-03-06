@@ -228,15 +228,18 @@ handle_call(Req, From, State, Module, Options) ->
           terminate(State2, Module, Options)
       catch
         error:Reason:Trace ->
-          ?LOG_ERROR("call handling error: ~tp~n~tp", [Reason, Trace]),
+          ?LOG_ERROR("call handling error: ~tp~nrequest: ~tp~n~tp",
+                     [Reason, Req, Trace]),
           From ! {c_agent, {response, error, {error, Reason}}},
           main(State, Module, Options);
         exit:Reason:Trace ->
-          ?LOG_ERROR("call handling exit: ~tp~n~tp", [Reason, Trace]),
+          ?LOG_ERROR("call handling exit: ~tp~nrequest: ~tp~n~tp",
+                     [Reason, Req, Trace]),
           From ! {c_agent, {response, error, {exit, Reason}}},
           main(State, Module, Options);
         throw:Reason ->
-          ?LOG_ERROR("call handling exception: ~tp", [Reason]),
+          ?LOG_ERROR("call handling exception: ~tp~nrequest: ~tp",
+                     [Reason, Req]),
           From ! {c_agent, {response, error, {throw, Reason}}},
           main(State, Module, Options)
       end;
@@ -258,13 +261,16 @@ handle_message(Msg, State, Module, Options) ->
           terminate(State2, Module, Options)
       catch
         error:Reason:Trace ->
-          ?LOG_ERROR("message handling error: ~tp~n~tp", [Reason, Trace]),
+          ?LOG_ERROR("message handling error: ~tp~nmessage: ~tp~n~tp",
+                     [Reason, Msg, Trace]),
           main(State, Module, Options);
         exit:Reason:Trace ->
-          ?LOG_ERROR("message handling exit: ~tp~n~tp", [Reason, Trace]),
+          ?LOG_ERROR("message handling exit: ~tp~nmessage: ~tp~n~tp",
+                     [Reason, Msg, Trace]),
           main(State, Module, Options);
         throw:Reason ->
-          ?LOG_ERROR("message handling exception: ~tp", [Reason]),
+          ?LOG_ERROR("message handling exception: ~tp~nmessage: ~tp",
+                     [Reason, Msg]),
           main(State, Module, Options)
       end;
     false ->
