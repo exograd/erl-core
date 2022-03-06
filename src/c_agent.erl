@@ -21,9 +21,9 @@
 
 -export_type([options/0, error_reason/0, result/0, result/1,
               name/0, ref/0,
-              termination_reason/0]).
+              termination_reason/0, handle_message_ret/1]).
 
--optional_callbacks([terminate/2]).
+-optional_callbacks([terminate/2, handle_message/2]).
 
 -type options() ::
         #{domain => [atom()],
@@ -49,10 +49,18 @@
 -type termination_reason() ::
         normal.
 
+-type handle_message_ret(State) ::
+        {ok, State}
+      | {stop, State}.
+
 -callback init(State) -> {ok, State} | {error, term()} when
     State :: term().
 
 -callback terminate(termination_reason(), State) -> ok when
+    State :: term().
+
+-callback handle_message(Message, State) -> handle_message_ret(State) when
+    Message :: term(),
     State :: term().
 
 -spec start_link(module(), options()) -> result(pid()).
@@ -140,15 +148,15 @@ init(Name, Module, Options, Parent) ->
 main(State, Module, Options) ->
   receive
     {c_agent, {stop, TerminationReason}} ->
-      ?LOG_DEBUG("stopping (reason: ~0tp)", [TerminationReason]),
       terminate(TerminationReason, State, Module, Options);
     Msg ->
-      ?LOG_INFO("message: ~tp", [Msg]),
-      main(State, Module, Options)
+      handle_message(Msg, State, Module, Options)
   end.
 
--spec terminate(termination_reason(), term(), module(), options()) -> ok.
+-spec terminate(termination_reason(), term(), module(), options()) ->
+        no_return().
 terminate(TerminationReason, State, Module, _Options) ->
+  ?LOG_DEBUG("terminating (reason: ~0tp)", [TerminationReason]),
   case erlang:function_exported(Module, terminate, 2)  of
     true ->
       try
@@ -160,12 +168,38 @@ terminate(TerminationReason, State, Module, _Options) ->
           ?LOG_ERROR("termination exit: ~tp~n~tp", [Reason, Trace]);
         throw:Reason ->
           ?LOG_ERROR("termination exception: ~tp", [Reason])
-      after ->
-          exit(TerminationReason)
+      after
+        exit(TerminationReason)
       end;
     false ->
       exit(TerminationReason)
   end.
+
+-spec handle_message(term(), term(), module(), options()) -> ok.
+handle_message(Msg, State, Module, Options) ->
+  case erlang:function_exported(Module, handle_message, 2)  of
+    true ->
+      try
+        Module:handle_message(Msg, State)
+      of
+        {ok, State2} ->
+          main(State2, Module, Options);
+        {stop, State2} ->
+          terminate(normal, State2, Module, Options)
+      catch
+        error:Reason:Trace ->
+          ?LOG_ERROR("message handling error: ~tp~n~tp", [Reason, Trace]),
+          main(State, Module, Options);
+        exit:Reason:Trace ->
+          ?LOG_ERROR("message handling exit: ~tp~n~tp", [Reason, Trace]),
+          main(State, Module, Options);
+        throw:Reason ->
+          ?LOG_ERROR("message handling exception: ~tp", [Reason]),
+          main(State, Module, Options)
+      end;
+    false ->
+      ?LOG_INFO("unhandled message: ~tp", [Msg]),
+      main(State, Module, Options)
   end.
 
 -spec maybe_register_name(name() | undefined, pid()) -> ok.
