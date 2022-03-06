@@ -22,6 +22,7 @@
 
 -export_type([options/0, error_reason/0, result/0, result/1,
               name/0, ref/0,
+              call_ret/0, call_ret/1, call_error_ret/0,
               handle_message_ret/1, handle_call_ret/1, handle_call_ret/2]).
 
 -optional_callbacks([terminate/1, handle_message/2, handle_call/3]).
@@ -46,6 +47,19 @@
 
 -type ref() ::
         pid() | name().
+
+-type call_ret() ::
+        call_ret(term()).
+
+-type call_ret(Response) ::
+        Response
+      | {error, {agent, call_error_ret()}}.
+
+-type call_error_ret() ::
+        {recipient_down, pid()}
+      | {error, term()}
+      | {exit, term()}
+      | {throw, term()}.
 
 -type handle_message_ret(State) ::
         {ok, State}
@@ -130,11 +144,14 @@ call(Ref, Req) ->
   Mon = erlang:monitor(process, Ref),
   Ref ! {c_agent, {request, Req, self()}},
   receive
-    {c_agent, {response, Res}} ->
+    {c_agent, {response, success, Res}} ->
       erlang:demonitor(Mon),
       Res;
+    {c_agent, {response, error, Reason}} ->
+      erlang:demonitor(Mon),
+      {error, {agent, Reason}};
     {'DOWN', Mon, _, RefPid, _} ->
-      error({recipient_down, RefPid})
+      {error, {agent, {recipient_down, RefPid}}}
   end.
 
 -spec init(name() | undefined, module(), options(), pid()) -> no_return().
@@ -204,20 +221,23 @@ handle_call(Req, From, State, Module, Options) ->
         Module:handle_call(Req, From, State)
       of
         {ok, Res, State2} ->
-          From ! {c_agent, {response, Res}},
+          From ! {c_agent, {response, success, Res}},
           main(State2, Module, Options);
         {stop, Res, State2} ->
-          From ! {c_agent, {response, Res}},
+          From ! {c_agent, {response, success, Res}},
           terminate(State2, Module, Options)
       catch
         error:Reason:Trace ->
           ?LOG_ERROR("call handling error: ~tp~n~tp", [Reason, Trace]),
+          From ! {c_agent, {response, error, {error, Reason}}},
           main(State, Module, Options);
         exit:Reason:Trace ->
           ?LOG_ERROR("call handling exit: ~tp~n~tp", [Reason, Trace]),
+          From ! {c_agent, {response, error, {exit, Reason}}},
           main(State, Module, Options);
         throw:Reason ->
           ?LOG_ERROR("call handling exception: ~tp", [Reason]),
+          From ! {c_agent, {response, error, {throw, Reason}}},
           main(State, Module, Options)
       end;
     false ->
