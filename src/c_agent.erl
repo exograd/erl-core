@@ -56,7 +56,7 @@
 
 -type handle_call_ret(Response, State) ::
         {ok, Response, State}
-      | {stop, State}.
+      | {stop, Response, State}.
 
 -callback init(State) -> {ok, State} | {error, term()} when
     State :: term().
@@ -206,7 +206,8 @@ handle_call(Req, From, State, Module, Options) ->
         {ok, Res, State2} ->
           From ! {c_agent, {response, Res}},
           main(State2, Module, Options);
-        {stop, State2} ->
+        {stop, Res, State2} ->
+          From ! {c_agent, {response, Res}},
           terminate(State2, Module, Options)
       catch
         error:Reason:Trace ->
