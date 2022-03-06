@@ -20,7 +20,10 @@
 -export([init/4]). % has to be exported to be called by spawn_link/3
 
 -export_type([options/0, error_reason/0, result/0, result/1,
-              name/0, ref/0]).
+              name/0, ref/0,
+              termination_reason/0]).
+
+-optional_callbacks([terminate/2]).
 
 -type options() ::
         #{domain => [atom()],
@@ -43,8 +46,14 @@
 -type ref() ::
         pid() | name().
 
--callback init(State) -> {ok, State} | {error, term()}.
--callback terminate(term()) -> ok.
+-type termination_reason() ::
+        normal.
+
+-callback init(State) -> {ok, State} | {error, term()} when
+    State :: term().
+
+-callback terminate(termination_reason(), State) -> ok when
+    State :: term().
 
 -spec start_link(module(), options()) -> result(pid()).
 start_link(Module, Options) ->
@@ -130,12 +139,33 @@ init(Name, Module, Options, Parent) ->
 -spec main(term(), module(), options()) -> ok.
 main(State, Module, Options) ->
   receive
-    {c_agent, {stop, Reason}} ->
-      ?LOG_DEBUG("stopping (reason: ~0tp)", [Reason]),
-      exit(Reason);
+    {c_agent, {stop, TerminationReason}} ->
+      ?LOG_DEBUG("stopping (reason: ~0tp)", [TerminationReason]),
+      terminate(TerminationReason, State, Module, Options);
     Msg ->
       ?LOG_INFO("message: ~tp", [Msg]),
       main(State, Module, Options)
+  end.
+
+-spec terminate(termination_reason(), term(), module(), options()) -> ok.
+terminate(TerminationReason, State, Module, _Options) ->
+  case erlang:function_exported(Module, terminate, 2)  of
+    true ->
+      try
+        Module:terminate(TerminationReason, State)
+      catch
+        error:Reason:Trace ->
+          ?LOG_ERROR("termination error: ~tp~n~tp", [Reason, Trace]);
+        exit:Reason:Trace ->
+          ?LOG_ERROR("termination exit: ~tp~n~tp", [Reason, Trace]);
+        throw:Reason ->
+          ?LOG_ERROR("termination exception: ~tp", [Reason])
+      after ->
+          exit(TerminationReason)
+      end;
+    false ->
+      exit(TerminationReason)
+  end.
   end.
 
 -spec maybe_register_name(name() | undefined, pid()) -> ok.
