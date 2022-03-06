@@ -134,7 +134,7 @@ call(Ref, Req) ->
       erlang:demonitor(Mon),
       Res;
     {'DOWN', Mon, _, RefPid, _} ->
-      error({call_recipient_exit, RefPid})
+      error({recipient_down, RefPid})
   end.
 
 -spec init(name() | undefined, module(), options(), pid()) -> no_return().
