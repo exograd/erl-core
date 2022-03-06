@@ -16,7 +16,8 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--export([start_link/2, start_link/3, stop/1]).
+-export([start_link/2, start_link/3, stop/1,
+         call/2]).
 -export([init/4]). % has to be exported to be called by spawn_link/3
 
 -export_type([options/0, error_reason/0, result/0, result/1,
@@ -122,6 +123,18 @@ stop(Ref) ->
   receive
     {'DOWN', Mon, _, _, _} ->
       ok
+  end.
+
+-spec call(ref(), term()) -> term().
+call(Ref, Req) ->
+  Mon = erlang:monitor(process, Ref),
+  Ref ! {c_agent, {request, Req, self()}},
+  receive
+    {c_agent, {response, Res}} ->
+      erlang:demonitor(Mon),
+      Res;
+    {'DOWN', Mon, _, RefPid, _} ->
+      error({call_recipient_exit, RefPid})
   end.
 
 -spec init(name() | undefined, module(), options(), pid()) -> no_return().
