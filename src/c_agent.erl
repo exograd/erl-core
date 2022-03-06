@@ -16,14 +16,13 @@
 
 -include_lib("kernel/include/logger.hrl").
 
--export([start_link/2, start_link/3, stop/1, stop/2]).
+-export([start_link/2, start_link/3, stop/1]).
 -export([init/4]). % has to be exported to be called by spawn_link/3
 
 -export_type([options/0, error_reason/0, result/0, result/1,
-              name/0, ref/0,
-              termination_reason/0, handle_message_ret/1]).
+              name/0, ref/0, handle_message_ret/1]).
 
--optional_callbacks([terminate/2, handle_message/2]).
+-optional_callbacks([terminate/1, handle_message/2]).
 
 -type options() ::
         #{domain => [atom()],
@@ -46,9 +45,6 @@
 -type ref() ::
         pid() | name().
 
--type termination_reason() ::
-        normal.
-
 -type handle_message_ret(State) ::
         {ok, State}
       | {stop, State}.
@@ -56,7 +52,7 @@
 -callback init(State) -> {ok, State} | {error, term()} when
     State :: term().
 
--callback terminate(termination_reason(), State) -> ok when
+-callback terminate(State) -> ok when
     State :: term().
 
 -callback handle_message(Message, State) -> handle_message_ret(State) when
@@ -107,14 +103,10 @@ handle_starting_child(Id, Pid, Options) ->
 
 -spec stop(ref()) -> ok.
 stop(Ref) ->
-  stop(Ref, normal).
-
--spec stop(ref(), term()) -> ok.
-stop(Ref, Reason) ->
   Mon = erlang:monitor(process, Ref),
-  Ref ! {c_agent, {stop, Reason}},
+  Ref ! {c_agent, stop},
   receive
-    {'DOWN', Mon, _, _, _Reason} ->
+    {'DOWN', Mon, _, _, _} ->
       ok
   end.
 
@@ -147,20 +139,20 @@ init(Name, Module, Options, Parent) ->
 -spec main(term(), module(), options()) -> ok.
 main(State, Module, Options) ->
   receive
-    {c_agent, {stop, TerminationReason}} ->
-      terminate(TerminationReason, State, Module, Options);
+    {c_agent, stop} ->
+      ?LOG_DEBUG("stopping"),
+      terminate(State, Module, Options);
     Msg ->
       handle_message(Msg, State, Module, Options)
   end.
 
--spec terminate(termination_reason(), term(), module(), options()) ->
-        no_return().
-terminate(TerminationReason, State, Module, _Options) ->
-  ?LOG_DEBUG("terminating (reason: ~0tp)", [TerminationReason]),
+-spec terminate(term(), module(), options()) -> no_return().
+terminate(State, Module, _Options) ->
+  ?LOG_DEBUG("terminating"),
   case erlang:function_exported(Module, terminate, 2)  of
     true ->
       try
-        Module:terminate(TerminationReason, State)
+        Module:terminate(State)
       catch
         error:Reason:Trace ->
           ?LOG_ERROR("termination error: ~tp~n~tp", [Reason, Trace]);
@@ -169,10 +161,10 @@ terminate(TerminationReason, State, Module, _Options) ->
         throw:Reason ->
           ?LOG_ERROR("termination exception: ~tp", [Reason])
       after
-        exit(TerminationReason)
+        exit(normal)
       end;
     false ->
-      exit(TerminationReason)
+      exit(normal)
   end.
 
 -spec handle_message(term(), term(), module(), options()) -> ok.
@@ -185,7 +177,7 @@ handle_message(Msg, State, Module, Options) ->
         {ok, State2} ->
           main(State2, Module, Options);
         {stop, State2} ->
-          terminate(normal, State2, Module, Options)
+          terminate(State2, Module, Options)
       catch
         error:Reason:Trace ->
           ?LOG_ERROR("message handling error: ~tp~n~tp", [Reason, Trace]),
