@@ -20,9 +20,10 @@
 -export([init/4]). % has to be exported to be called by spawn_link/3
 
 -export_type([options/0, error_reason/0, result/0, result/1,
-              name/0, ref/0, handle_message_ret/1]).
+              name/0, ref/0,
+              handle_message_ret/1, handle_call_ret/1, handle_call_ret/2]).
 
--optional_callbacks([terminate/1, handle_message/2]).
+-optional_callbacks([terminate/1, handle_message/2, handle_call/3]).
 
 -type options() ::
         #{domain => [atom()],
@@ -49,6 +50,13 @@
         {ok, State}
       | {stop, State}.
 
+-type handle_call_ret(State) ::
+        handle_call_ret(term(), State).
+
+-type handle_call_ret(Response, State) ::
+        {ok, Response, State}
+      | {stop, State}.
+
 -callback init(State) -> {ok, State} | {error, term()} when
     State :: term().
 
@@ -57,6 +65,12 @@
 
 -callback handle_message(Message, State) -> handle_message_ret(State) when
     Message :: term(),
+    State :: term().
+
+-callback handle_call(Request, pid(), State) ->
+  handle_call_ret(Response, State) when
+    Request :: term(),
+    Response :: term(),
     State :: term().
 
 -spec start_link(module(), options()) -> result(pid()).
@@ -142,6 +156,8 @@ main(State, Module, Options) ->
     {c_agent, stop} ->
       ?LOG_DEBUG("stopping"),
       terminate(State, Module, Options);
+    {c_agent, {request, Request, From}} ->
+      handle_call(Request, From, State, Module, Options);
     Msg ->
       handle_message(Msg, State, Module, Options)
   end.
@@ -165,6 +181,34 @@ terminate(State, Module, _Options) ->
       end;
     false ->
       exit(normal)
+  end.
+
+-spec handle_call(term(), pid(), term(), module(), options()) -> ok.
+handle_call(Req, From, State, Module, Options) ->
+  case erlang:function_exported(Module, handle_call, 3)  of
+    true ->
+      try
+        Module:handle_call(Req, From, State)
+      of
+        {ok, Res, State2} ->
+          From ! {c_agent, {response, Res}},
+          main(State2, Module, Options);
+        {stop, State2} ->
+          terminate(State2, Module, Options)
+      catch
+        error:Reason:Trace ->
+          ?LOG_ERROR("call handling error: ~tp~n~tp", [Reason, Trace]),
+          main(State, Module, Options);
+        exit:Reason:Trace ->
+          ?LOG_ERROR("call handling exit: ~tp~n~tp", [Reason, Trace]),
+          main(State, Module, Options);
+        throw:Reason ->
+          ?LOG_ERROR("call handling exception: ~tp", [Reason]),
+          main(State, Module, Options)
+      end;
+    false ->
+      ?LOG_INFO("unhandled call from ~p: ~tp", [From, Req]),
+      main(State, Module, Options)
   end.
 
 -spec handle_message(term(), term(), module(), options()) -> ok.
